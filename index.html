@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Meyve & Sebze Panel</title>
+
+<style>
+body {
+  margin:0;
+  font-family: Arial, sans-serif;
+  background-image: url("https://images.unsplash.com/photo-1490818387583-1baba5e638af");
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center center;
+  background-attachment: fixed;
+  background-color: #111;
+  color: white;
+  text-align: center;
+}
+
+.container {
+  background: rgba(0,0,0,0.7);
+  margin:20px auto;
+  padding:20px;
+  width:90%;
+  max-width:500px;
+  border-radius:15px;
+}
+
+input, button {
+  padding:10px;
+  margin:5px;
+  border-radius:8px;
+  border:none;
+}
+
+button {
+  cursor:pointer;
+  background:#4CAF50;
+  color:white;
+}
+
+img {
+  margin-top:10px;
+  border-radius:10px;
+}
+</style>
+</head>
+
+<body>
+
+<h1>🍎 Meyve & 🥦 Sebze Yönetim</h1>
+
+<div class="container">
+  <input type="email" id="email" placeholder="Email">
+  <input type="password" id="password" placeholder="Şifre">
+  <br>
+  <button onclick="register()">Kayıt</button>
+  <button onclick="login()">Giriş</button>
+  <button onclick="logout()">Çıkış</button>
+</div>
+
+<div class="container" id="panel" style="display:none;">
+  <h2>Ürün Ekle</h2>
+  <input type="text" id="ad" placeholder="İsim">
+  <input type="file" id="resimFile" accept="image/png, image/jpeg">
+  <br>
+  <button onclick="ekle('meyveler')">Meyve Ekle</button>
+  <button onclick="ekle('sebzeler')">Sebze Ekle</button>
+</div>
+
+<div class="container">
+  <h2>Meyveler</h2>
+  <div id="meyveListe"></div>
+</div>
+
+<div class="container">
+  <h2>Sebzeler</h2>
+  <div id="sebzeListe"></div>
+</div>
+
+<script type="module">
+
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged }
+from "https://www.gstatic.com/firebasejs/12.9.0/firebase-auth.js";
+import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc }
+from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
+import { getStorage, ref, uploadBytes, getDownloadURL }
+from "https://www.gstatic.com/firebasejs/12.9.0/firebase-storage.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCMTEVExLDkvw3h-uT4GsJo0brYrGezGnE",
+  authDomain: "goktug-c82e9.firebaseapp.com",
+  projectId: "goktug-c82e9",
+  storageBucket: "goktug-c82e9.appspot.com",
+  messagingSenderId: "212049760583",
+  appId: "1:212049760583:web:49e546ab9b2da889fdfc62"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const storage = getStorage(app);
+
+window.register = async function(){
+  try{
+    await createUserWithEmailAndPassword(auth,email.value.trim(),password.value.trim());
+    alert("Kayıt başarılı");
+  }catch(e){
+    alert(e.code);
+  }
+}
+
+window.login = async function(){
+  try{
+    await signInWithEmailAndPassword(auth,email.value.trim(),password.value.trim());
+    alert("Giriş başarılı");
+  }catch(e){
+    alert(e.code);
+  }
+}
+
+window.logout = async function(){
+  await signOut(auth);
+}
+
+window.ekle = async function(tip){
+
+  if(!auth.currentUser){
+    alert("Giriş yapmalısın");
+    return;
+  }
+
+  const adVal = ad.value.trim();
+  const file = resimFile.files[0];
+
+  if(!adVal || !file){
+    alert("Eksik bilgi");
+    return;
+  }
+
+  try{
+
+    const storageRef = ref(storage, tip + "/" + Date.now()+"_"+file.name);
+
+    console.log("Upload başlıyor...");
+    await uploadBytes(storageRef,file);
+
+    const url = await getDownloadURL(storageRef);
+
+    console.log("Firestore yazılıyor...");
+    await addDoc(collection(db,tip),{
+      ad:adVal,
+      resim:url,
+      uid:auth.currentUser.uid
+    });
+
+    alert("Eklendi");
+    ad.value="";
+    resimFile.value="";
+    listele();
+
+  }catch(e){
+    console.error(e);
+    alert("Hata: "+e.message);
+  }
+}
+
+window.sil = async function(tip,id){
+  if(!auth.currentUser) return;
+  await deleteDoc(doc(db,tip,id));
+  listele();
+}
+
+async function listele(){
+
+  meyveListe.innerHTML="";
+  sebzeListe.innerHTML="";
+
+  const meyveSnap = await getDocs(collection(db,"meyveler"));
+  const sebzeSnap = await getDocs(collection(db,"sebzeler"));
+
+  meyveSnap.forEach(d=>{
+    const data=d.data();
+    meyveListe.innerHTML+=`
+      <div>
+        <b>${data.ad}</b><br>
+        <img src="${data.resim}" width="150"><br>
+        <button onclick="sil('meyveler','${d.id}')">Sil</button>
+      </div><hr>
+    `;
+  });
+
+  sebzeSnap.forEach(d=>{
+    const data=d.data();
+    sebzeListe.innerHTML+=`
+      <div>
+        <b>${data.ad}</b><br>
+        <img src="${data.resim}" width="150"><br>
+        <button onclick="sil('sebzeler','${d.id}')">Sil</button>
+      </div><hr>
+    `;
+  });
+
+}
+
+onAuthStateChanged(auth,user=>{
+  panel.style.display = user ? "block":"none";
+});
+
+listele();
+
+</script>
+</body>
+</html>
