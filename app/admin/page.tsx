@@ -15,6 +15,8 @@ type Food = {
   created_at?: string;
 };
 
+const BUCKET = "food-images";
+
 export default function AdminPage() {
   const router = useRouter();
 
@@ -25,19 +27,28 @@ export default function AdminPage() {
   const [category, setCategory] = useState<"Meyve" | "Sebze">("Meyve");
   const [calorie, setCalorie] = useState("");
   const [description, setDescription] = useState("");
-  const [image, setImage] = useState("");
+
+  // URL yerine FILE
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string>("");
 
   const [foods, setFoods] = useState<Food[]>([]);
 
   const canSave = useMemo(() => {
     if (!name.trim()) return false;
     if (!category) return false;
-    // kalori boş olabilir, ama yazıldıysa sayı olmalı
     if (calorie.trim() && Number.isNaN(Number(calorie))) return false;
-    // image boş olabilir, ama yazıldıysa url gibi olsun
-    if (image.trim() && !/^https?:\/\//i.test(image.trim())) return false;
+
+    // dosya seçildiyse sadece png/jpg/jpeg kabul
+    if (imageFile) {
+      const okTypes = ["image/png", "image/jpeg", "image/jpg"];
+      if (!okTypes.includes(imageFile.type)) return false;
+      // 5MB sınırı (istersen değiştir)
+      if (imageFile.size > 5 * 1024 * 1024) return false;
+    }
+
     return true;
-  }, [name, category, calorie, image]);
+  }, [name, category, calorie, imageFile]);
 
   async function loadFoods() {
     setListLoading(true);
@@ -51,45 +62,75 @@ export default function AdminPage() {
   }
 
   useEffect(() => {
-    // Basit koruma: login yapılmadıysa login'e at
     const role = typeof window !== "undefined" ? localStorage.getItem("role") : null;
     if (!role) router.push("/login");
     loadFoods();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  async function uploadImageIfNeeded(): Promise<string | null> {
+    if (!imageFile) return null;
+
+    // güvenli dosya adı
+    const safeName = imageFile.name
+      .toLowerCase()
+      .replace(/\s+/g, "-")
+      .replace(/[^a-z0-9.\-_]/g, "");
+
+    const filePath = `${Date.now()}-${safeName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from(BUCKET)
+      .upload(filePath, imageFile, {
+        cacheControl: "3600",
+        upsert: false,
+        contentType: imageFile.type,
+      });
+
+    if (uploadError) {
+      throw new Error(uploadError.message);
+    }
+
+    const { data } = supabase.storage.from(BUCKET).getPublicUrl(filePath);
+    return data.publicUrl ?? null;
+  }
+
   async function handleAdd() {
     if (!canSave) {
-      alert("Lütfen bilgileri kontrol et. (Resim URL ise http/https ile başlamalı)");
+      alert("Bilgileri kontrol et. (Resim sadece PNG/JPG, max 5MB)");
       return;
     }
 
     setLoading(true);
-    const payload = {
-      name: name.trim(),
-      category: category,
-      calorie: calorie.trim() ? Number(calorie) : null,
-      description: description.trim() ? description.trim() : null,
-      image: image.trim() ? image.trim() : null,
-    };
 
-    const { error } = await supabase.from("foods").insert([payload]);
+    try {
+      const imageUrl = await uploadImageIfNeeded();
 
-    setLoading(false);
+      const payload = {
+        name: name.trim(),
+        category,
+        calorie: calorie.trim() ? Number(calorie) : null,
+        description: description.trim() ? description.trim() : null,
+        image: imageUrl, // artık storage public url
+      };
 
-    if (error) {
-      alert("Hata: " + error.message);
-      return;
+      const { error } = await supabase.from("foods").insert([payload]);
+      if (error) throw new Error(error.message);
+
+      setName("");
+      setCategory("Meyve");
+      setCalorie("");
+      setDescription("");
+      setImageFile(null);
+      setImagePreview("");
+
+      await loadFoods();
+      alert("Kayıt eklendi!");
+    } catch (e: any) {
+      alert("Hata: " + (e?.message || "Bilinmeyen hata"));
+    } finally {
+      setLoading(false);
     }
-
-    setName("");
-    setCategory("Meyve");
-    setCalorie("");
-    setDescription("");
-    setImage("");
-
-    await loadFoods();
-    alert("Kayıt eklendi!");
   }
 
   async function handleDelete(id: string) {
@@ -159,7 +200,9 @@ export default function AdminPage() {
             <option value="Sebze">Vegetable (Sebze)</option>
           </select>
 
-          <label className="block text-sm font-medium text-slate-700 mb-1">Calories (optional)</label>
+          <label className="block text-sm font-medium text-slate-700 mb-1">
+            Calories (optional)
+          </label>
           <input
             className="w-full rounded-xl border px-3 py-2 mb-4 outline-none focus:ring-2 focus:ring-green-300"
             placeholder="e.g. 89"
@@ -168,17 +211,43 @@ export default function AdminPage() {
           />
 
           <label className="block text-sm font-medium text-slate-700 mb-1">
-            Image URL (optional)
+            Image (PNG / JPG / JPEG) (optional)
           </label>
+
           <input
-            className="w-full rounded-xl border px-3 py-2 mb-4 outline-none focus:ring-2 focus:ring-green-300"
-            placeholder="https://..."
-            value={image}
-            onChange={(e) => setImage(e.target.value)}
+            type="file"
+            accept="image/png,image/jpeg,image/jpg"
+            className="w-full rounded-xl border px-3 py-2 mb-3 bg-white"
+            onChange={(e) => {
+              const f = e.target.files?.[0] || null;
+              setImageFile(f);
+
+              if (f) {
+                const url = URL.createObjectURL(f);
+                setImagePreview(url);
+              } else {
+                setImagePreview("");
+              }
+            }}
           />
-          <p className="text-xs text-slate-500 -mt-3 mb-4">
-            Şimdilik URL ile gösteriyoruz. İstersen sonra “dosya yükleme” (storage) ekleriz.
-          </p>
+
+          {imagePreview ? (
+            <div className="mb-4">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={imagePreview}
+                alt="preview"
+                className="w-full h-44 object-cover rounded-xl border"
+              />
+              <p className="text-xs text-slate-500 mt-1">
+                Seçili dosya Supabase Storage ({BUCKET}) içine yüklenecek.
+              </p>
+            </div>
+          ) : (
+            <p className="text-xs text-slate-500 -mt-1 mb-4">
+              Resim seçmezsen “No image” görünür.
+            </p>
+          )}
 
           <label className="block text-sm font-medium text-slate-700 mb-1">
             Description (optional)
@@ -218,18 +287,11 @@ export default function AdminPage() {
           ) : (
             <div className="grid gap-4">
               {foods.map((f) => (
-                <div
-                  key={f.id}
-                  className="rounded-2xl border p-4 flex gap-4 items-start"
-                >
+                <div key={f.id} className="rounded-2xl border p-4 flex gap-4 items-start">
                   <div className="w-28 h-20 rounded-xl bg-slate-100 overflow-hidden flex items-center justify-center">
                     {f.image ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={f.image}
-                        alt={f.name}
-                        className="w-full h-full object-cover"
-                      />
+                      <img src={f.image} alt={f.name} className="w-full h-full object-cover" />
                     ) : (
                       <span className="text-slate-400 text-xs">No image</span>
                     )}
@@ -262,9 +324,7 @@ export default function AdminPage() {
                     </div>
 
                     {f.description ? (
-                      <p className="text-sm text-slate-700 mt-2 line-clamp-3">
-                        {f.description}
-                      </p>
+                      <p className="text-sm text-slate-700 mt-2 line-clamp-3">{f.description}</p>
                     ) : null}
                   </div>
                 </div>

@@ -1,4 +1,8 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
 type Food = {
@@ -8,30 +12,39 @@ type Food = {
   calorie: number | null;
   description: string | null;
   image: string | null;
-  created_at?: string;
 };
 
-export default async function FoodDetailPage({
-  params,
-}: {
-  params: { id: string };
-}) {
-  const { data, error } = await supabase
-    .from("foods")
-    .select("id,name,category,calorie,description,image,created_at")
-    .eq("id", params.id)
-    .single();
+export default function FoodDetailPage() {
+  const params = useParams<{ id: string }>();
+  const id = params?.id;
 
-  if (error || !data) {
+  const [loading, setLoading] = useState(true);
+  const [food, setFood] = useState<Food | null>(null);
+
+  useEffect(() => {
+    async function run() {
+      if (!id) return;
+
+      setLoading(true);
+      const { data, error } = await supabase
+        .from("foods")
+        .select("id,name,category,calorie,description,image")
+        .eq("id", id)
+        .single();
+
+      if (!error && data) setFood(data as Food);
+      setLoading(false);
+    }
+
+    run();
+  }, [id]);
+
+  if (!id) {
     return (
-      <div className="min-h-screen bg-slate-50 p-8">
-        <div className="max-w-3xl mx-auto bg-white border rounded-2xl p-6">
-          <h1 className="text-xl font-bold text-slate-900">Not found</h1>
-          <p className="text-slate-600 mt-2">This item does not exist.</p>
-          <Link
-            href="/"
-            className="inline-block mt-4 px-4 py-2 rounded-lg bg-slate-900 text-white"
-          >
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+        <div className="bg-white border rounded-2xl p-6 max-w-md w-full">
+          <div className="font-bold text-slate-900 mb-2">Missing ID</div>
+          <Link className="text-green-700 font-semibold" href="/">
             Back to Home
           </Link>
         </div>
@@ -39,61 +52,64 @@ export default async function FoodDetailPage({
     );
   }
 
-  const f = data as Food;
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+        <div className="text-slate-600">Loading...</div>
+      </div>
+    );
+  }
+
+  if (!food) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+        <div className="bg-white border rounded-2xl p-6 max-w-md w-full">
+          <div className="font-bold text-slate-900 mb-2">Not found</div>
+          <div className="text-slate-600 mb-4">This item does not exist.</div>
+          <Link className="text-green-700 font-semibold" href="/">
+            Back to Home
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <div className="border-b bg-white">
-        <div className="mx-auto max-w-5xl px-4 py-4 flex items-center justify-between">
-          <div className="font-extrabold text-slate-900">GKV IB PROJECT</div>
-          <div className="flex gap-2 text-sm">
-            <Link href="/" className="px-3 py-2 rounded-md hover:bg-slate-100">
-              Home
-            </Link>
-            <Link
-              href="/admin"
-              className="px-3 py-2 rounded-md hover:bg-slate-100"
-            >
-              Admin
-            </Link>
-          </div>
-        </div>
-      </div>
+      <div className="mx-auto max-w-5xl px-4 py-8">
+        <Link href="/" className="text-sm text-slate-600 hover:underline">
+          ← Back
+        </Link>
 
-      <div className="mx-auto max-w-5xl px-4 py-8 grid gap-6 lg:grid-cols-2">
-        <div className="bg-white border rounded-2xl p-5 shadow-sm">
-          <div className="aspect-[4/3] rounded-2xl bg-slate-100 overflow-hidden flex items-center justify-center">
-            {f.image ? (
+        <div className="mt-4 bg-white border rounded-2xl overflow-hidden shadow-sm">
+          <div className="h-72 bg-slate-100">
+            {food.image ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={f.image}
-                alt={f.name}
-                className="w-full h-full object-cover"
-              />
+              <img src={food.image} alt={food.name} className="w-full h-full object-cover" />
             ) : (
-              <span className="text-slate-400 text-sm">No image</span>
+              <div className="h-full flex items-center justify-center text-slate-400">
+                No image
+              </div>
             )}
           </div>
-        </div>
 
-        <div className="bg-white border rounded-2xl p-5 shadow-sm">
-          <div className="text-sm text-slate-500 mb-2">
-            {f.category} {typeof f.calorie === "number" ? `• ${f.calorie} kcal` : ""}
+          <div className="p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h1 className="text-3xl font-extrabold text-slate-900">{food.name}</h1>
+                <div className="text-slate-600 mt-1">
+                  {food.category}
+                  {typeof food.calorie === "number" ? ` • ${food.calorie} kcal` : ""}
+                </div>
+              </div>
+            </div>
+
+            {food.description ? (
+              <p className="mt-4 text-slate-700 leading-relaxed">{food.description}</p>
+            ) : (
+              <p className="mt-4 text-slate-500">No description.</p>
+            )}
           </div>
-          <h1 className="text-3xl font-extrabold text-slate-900">{f.name}</h1>
-
-          {f.description ? (
-            <p className="text-slate-700 mt-4 leading-relaxed">{f.description}</p>
-          ) : (
-            <p className="text-slate-500 mt-4">No description.</p>
-          )}
-
-          <Link
-            href="/"
-            className="inline-block mt-6 px-5 py-3 rounded-xl bg-green-600 text-white font-semibold"
-          >
-            Back
-          </Link>
         </div>
       </div>
     </div>
